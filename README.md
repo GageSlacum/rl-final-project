@@ -1,122 +1,180 @@
-# Cost-Aware EV Charging Environment
+# COST-AWARE EV CHARGING ENVIRONMENT
 
-A custom Gymnasium environment for the Milestone 2 implementation of the project **Cost-Aware Electric Vehicle Charging Under Uncertain Electricity Prices**.
+This project contains a custom Gymnasium environment that simulates charging an electric vehicle while electricity prices change over a 14-hour period. It also includes a tabular Q-learning agent that learns charging decisions to reduce costs while meeting the required battery level.
 
-## Requirements
+## WHAT YOU NEED
 
 - Python 3.10 or newer
 - pip
-- Internet access for the first installation of the Python packages
+- An internet connection for installing the required packages
 
-## Setup on Windows (PowerShell)
+## HOW TO SET IT UP ON WINDOWS
 
-1. Open this folder in Visual Studio Code.
-2. Open **Terminal > New Terminal**.
-3. Create a virtual environment:
+1. Open the project folder in Visual Studio Code.
+2. Open Terminal, then select New Terminal.
+3. Create a virtual environment by entering:
 
    ```powershell
    py -m venv .venv
    ```
 
-4. Activate it:
+4. Turn on the virtual environment:
 
    ```powershell
    .\.venv\Scripts\Activate.ps1
    ```
 
-   If PowerShell blocks activation, use the Command Prompt instructions below or run the one-session command:
+   If PowerShell blocks this command, enter this command first, then try activating the environment again:
 
    ```powershell
    Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-   .\.venv\Scripts\Activate.ps1
    ```
 
-5. Install dependencies:
+5. Install the project packages:
 
    ```powershell
    python -m pip install --upgrade pip
    python -m pip install -r requirements.txt
    ```
 
-## Run the demonstration
+## HOW TO RUN THE DEMONSTRATION
+
+Enter this command in the terminal:
 
 ```powershell
 python run_demo.py
 ```
 
-The script runs one fixed, reproducible 14-hour action sequence. It prints each action, battery change, electricity cost, wear penalty, reward, and final result. It also creates:
+The demonstration runs a fixed 14-hour sequence of charging actions. It prints the actions, battery changes, electricity costs, penalties, and final result.
 
-- `figures/figure1_environment.png` — a plot of battery level and electricity price during the episode.
-- `outputs/demo_output.txt` — a text copy of the demonstration output.
+It also creates these files:
 
-The demonstration sequence is a manually selected test sequence, **not a trained reinforcement-learning agent**.
+- `figures/figure1_environment.png`: A chart of battery level and electricity price during the episode.
+- `outputs/demo_output.txt`: A text copy of the demonstration output.
 
-## Run the automated tests
+The demonstration uses actions chosen ahead of time. It is separate from the trained reinforcement-learning agent.
+
+## HOW TO TRAIN THE Q-LEARNING AGENT
+
+Enter this command in the terminal:
+
+```powershell
+python train_q_learning.py
+```
+
+This runs the Q-learning training process. The agent learns by interacting with the charging environment over 10,000 episodes.
+
+During training, the agent observes the current hour, battery level, and electricity price. It selects a charging action, receives a reward, and updates its Q-table based on the result.
+
+The training process uses the following parameters:
+
+- Training episodes: 10,000
+- Learning rate: 0.10
+- Discount factor: 0.95
+- Starting exploration rate: 1.00
+- Minimum exploration rate: 0.05
+- Exploration gradually decreases during training.
+
+The agent uses an epsilon-greedy strategy. This means it sometimes chooses random actions to explore different charging decisions and otherwise chooses the action with the highest estimated Q-value.
+
+After training, the program evaluates the learned policy against a random baseline over 500 episodes.
+
+The program also generates training graphs and saves the training and evaluation results.
+
+## INITIAL TRAINING RESULTS
+
+The Q-learning agent was evaluated over 500 episodes and compared against a random policy using the same set of environment seeds.
+
+The initial results were:
+
+| Metric | Q-learning | Random baseline |
+|---|---:|---:|
+| Average total cost | $3.42 | $8.12 |
+| Cost standard deviation | $1.33 | $2.49 |
+| Departure success rate | 100% | 100% |
+| Average final battery | 80% | 100% |
+
+The Q-learning agent achieved approximately 57.9% lower average total cost than the random baseline while maintaining a 100% departure success rate.
+
+The results suggest that the agent learned to avoid unnecessary charging while still reaching the required battery level.
+
+## HOW TO RUN THE TESTS
+
+Enter this command:
 
 ```powershell
 python -m pytest -q
 ```
 
-The tests cover reset behavior, seed reproducibility, slow and fast charging, battery capacity, departure termination, the departure shortfall penalty, and price-transition probabilities.
+The tests check that the environment resets correctly, produces the same starting state when a seed is reused, handles slow and fast charging, keeps the battery within its limit, ends at the correct time, applies the departure penalty, and uses valid price-transition probabilities.
 
-## Environment design
+## HOW THE ENVIRONMENT WORKS
 
-### Observation
+### OBSERVATION
 
-A three-integer NumPy array: `[hour, battery_level, price_level]`.
+The environment provides three numbers:
 
-- `hour`: 0 through 13 for decision steps; 14 is the terminal observation.
-- `battery_level`: 0 through 10, where each level is 10% of the battery.
-- `price_level`: 0 = low, 1 = medium, 2 = high.
+- Hour: The current hour, from 0 to 14.
+- Battery level: A number from 0 to 10. Each level represents 10% battery.
+- Price level: 0 means low, 1 means medium, and 2 means high electricity price.
 
-There are 14 × 11 × 3 = 462 nonterminal decision-state combinations. The observation space also includes the terminal hour so the final observation is valid.
+There are 14 x 11 x 3 = 462 possible nonterminal combinations of these values. The final observation is at hour 14, after the last charging action.
 
-### Actions
+### ACTIONS
 
-- `0`: idle, add zero battery levels.
-- `1`: slow charge, request one battery level (+10%).
-- `2`: fast charge, request two battery levels (+20%).
+- 0: Do not charge.
+- 1: Slow charge. This requests one battery level, or 10%.
+- 2: Fast charge. This requests two battery levels, or 20%.
 
-The battery level is capped at 10.
+The battery cannot go above 100%.
 
-### Reward
+### REWARD
 
-The reward is the negative of all costs incurred on that step:
+The reward is the negative of the costs for that hour:
 
-`reward = -(electricity_cost + wear_penalty + departure_shortfall_penalty)`
+```text
+reward = -(electricity cost + wear penalty + departure penalty)
+```
 
-`electricity_cost = energy_added_kwh × current_price_per_kwh`
+Each battery level represents 6 kWh. Electricity cost depends on how much energy is added and the current price. Fast charging adds a $0.50 wear penalty when it adds energy.
 
-Each battery level represents 6 kWh. Fast charging incurs a $0.50 wear penalty when it adds energy. At the end of the 14-hour window, the environment subtracts $5 for every battery level below the 80% target.
+At the end of the 14-hour period, the environment applies a $5 penalty for every 10% battery level below the 80% departure target.
 
-### Transitions
+### ELECTRICITY PRICES
 
-After the agent acts, the environment applies the charge, advances the hour, and samples the next electricity price from a three-state transition matrix. During the final four hours, a second transition matrix gives medium/high prices a greater chance to occur, representing a simplified morning peak. At hour 14, the episode terminates and the departure shortfall penalty is applied.
+The starting price is randomly selected from low, medium, and high prices.
 
-## Parameters used for this milestone
+After each action, the next price is selected using probability tables. A different table is used during the final four hours to make medium and high prices more likely, representing a simplified morning price peak.
 
-These are explicit simulation assumptions selected to make the proposal executable; they are not measurements from a particular utility or EV:
+## SIMULATION SETTINGS
 
-| Parameter | Value |
-|---|---:|
-| Charging window | 14 hours |
-| Starting battery | 40% |
-| Departure target | 80% |
-| Battery capacity | 100% |
-| Battery capacity represented | 60 kWh |
-| Low / medium / high price | $0.10 / $0.20 / $0.35 per kWh |
-| Fast-charge wear penalty | $0.50 per fast-charge action that adds energy |
-| Departure shortfall penalty | $5 per missing 10% battery level |
+- Charging period: 14 hours
+- Starting battery: 40%
+- Battery target at departure: 80%
+- Maximum battery: 100%
+- Battery capacity represented: 60 kWh
+- Low electricity price: $0.10 per kWh
+- Medium electricity price: $0.20 per kWh
+- High electricity price: $0.35 per kWh
+- Fast-charge wear penalty: $0.50 per fast-charge action that adds energy
+- Departure shortfall penalty: $5 for each missing 10% battery level
 
-## Project files
+These values are simulation assumptions for the project. They are not actual prices or measurements from a specific utility or vehicle.
 
-- `ev_charging_env.py`: custom Gymnasium environment.
-- `run_demo.py`: runs a demonstration and saves the plot and output log.
-- `tests/test_ev_charging_env.py`: automated tests.
-- `Report_Draft.docx`: editable two-page report draft with figure placeholders. Replace the placeholders and update the testing statements before exporting your final PDF.
-- `report_template.md`: plain-text/Markdown version of the report draft.
-- `requirements.txt`: Python dependencies.
+## MAIN PROJECT FILES
 
-## Limitations and next steps
+- `ev_charging_env.py`: The custom charging environment.
+- `run_demo.py`: Runs the demonstration and saves the chart and output log.
+- `train_q_learning.py`: Implements and trains the tabular Q-learning agent, evaluates it against a random baseline, and generates results.
+- `tests/test_ev_charging_env.py`: The automated environment tests.
+- `requirements.txt`: The Python packages needed by the project.
+- `figures/`: Contains generated environment, training, and comparison graphs.
+- `outputs/`: Contains saved training and evaluation results.
 
-This milestone uses a simplified three-level price model and fixed initial/target battery levels. No Q-learning, SARSA, policy training, or baseline comparison is included yet. Those are planned for the next milestone, along with experiments using different price patterns and possibly unexpected departure times.
+## LIMITATIONS AND NEXT STEPS
+
+The current environment uses three electricity price levels, fixed starting and target battery levels, and a fixed 14-hour charging period.
+
+The current implementation uses tabular Q-learning and a random policy for its initial baseline comparison. SARSA and more advanced reinforcement-learning algorithms have not yet been implemented.
+
+Future improvements include testing different learning rates and exploration settings, introducing additional electricity price patterns, and investigating unexpected departure times and varying battery requirements.
