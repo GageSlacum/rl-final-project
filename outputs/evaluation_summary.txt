@@ -1,0 +1,15 @@
+Evaluation episodes per policy: 500
+Both policies use the same set of environment seeds.
+
+Q-learning
+Average total cost: $3.42
+Cost standard deviation: $1.33
+Departure success rate: 100.0%
+Average final battery: 80.0%
+
+Random baseline
+Average total cost: $8.12
+Cost standard deviation: $2.49
+Departure success rate: 100.0%
+Average final battery: 100.0%
+

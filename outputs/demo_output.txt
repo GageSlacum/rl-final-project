@@ -1,0 +1,24 @@
+EV CHARGING ENVIRONMENT DEMONSTRATION
+======================================
+Initial observation [hour, battery level, price level]: [0, 4, 1]
+Initial state: hour=0, battery=40%, price=Medium ($0.20/kWh)
+
+Step 01 | Slow charge  | battery  40% ->  50% | price used $0.20/kWh | energy 6.0 kWh | electricity $1.20 | wear $0.00 | departure penalty $0.00 | reward -1.20
+Step 02 | Idle         | battery  50% ->  50% | price used $0.35/kWh | energy 0.0 kWh | electricity $0.00 | wear $0.00 | departure penalty $0.00 | reward -0.00
+Step 03 | Slow charge  | battery  50% ->  60% | price used $0.35/kWh | energy 6.0 kWh | electricity $2.10 | wear $0.00 | departure penalty $0.00 | reward -2.10
+Step 04 | Idle         | battery  60% ->  60% | price used $0.20/kWh | energy 0.0 kWh | electricity $0.00 | wear $0.00 | departure penalty $0.00 | reward -0.00
+Step 05 | Idle         | battery  60% ->  60% | price used $0.20/kWh | energy 0.0 kWh | electricity $0.00 | wear $0.00 | departure penalty $0.00 | reward -0.00
+Step 06 | Fast charge  | battery  60% ->  80% | price used $0.35/kWh | energy 12.0 kWh | electricity $4.20 | wear $0.50 | departure penalty $0.00 | reward -4.70
+Step 07 | Idle         | battery  80% ->  80% | price used $0.10/kWh | energy 0.0 kWh | electricity $0.00 | wear $0.00 | departure penalty $0.00 | reward -0.00
+Step 08 | Slow charge  | battery  80% ->  90% | price used $0.20/kWh | energy 6.0 kWh | electricity $1.20 | wear $0.00 | departure penalty $0.00 | reward -1.20
+Step 09 | Idle         | battery  90% ->  90% | price used $0.20/kWh | energy 0.0 kWh | electricity $0.00 | wear $0.00 | departure penalty $0.00 | reward -0.00
+Step 10 | Idle         | battery  90% ->  90% | price used $0.20/kWh | energy 0.0 kWh | electricity $0.00 | wear $0.00 | departure penalty $0.00 | reward -0.00
+Step 11 | Slow charge  | battery  90% -> 100% | price used $0.20/kWh | energy 6.0 kWh | electricity $1.20 | wear $0.00 | departure penalty $0.00 | reward -1.20
+Step 12 | Idle         | battery 100% -> 100% | price used $0.20/kWh | energy 0.0 kWh | electricity $0.00 | wear $0.00 | departure penalty $0.00 | reward -0.00
+Step 13 | Idle         | battery 100% -> 100% | price used $0.20/kWh | energy 0.0 kWh | electricity $0.00 | wear $0.00 | departure penalty $0.00 | reward -0.00
+Step 14 | Idle         | battery 100% -> 100% | price used $0.20/kWh | energy 0.0 kWh | electricity $0.00 | wear $0.00 | departure penalty $0.00 | reward -0.00
+
+Episode ended: terminated=True, truncated=False
+Final battery: 100% (required: 80%)
+Total reward: -10.40
+Total cost including penalties: 10.40
