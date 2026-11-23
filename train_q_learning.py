@@ -142,69 +142,119 @@ def train_agent(env, agent):
 
     return training_records
 
-# Evaluation: trained agent and random baseline
-def evaluate_q_learning(env, agent):
-    """Test the trained policy without exploration."""
+# Evaluation: Q-learning and three baseline policies
+
+def select_q_learning_action(observation, env, agent, rng):
+    """Select the best action from the trained Q-learning agent."""
+    return agent.select_action(observation, epsilon=0.0)
+
+
+def select_random_action(observation, env, agent, rng):
+    """Select a random charging action."""
+    return int(rng.integers(env.action_space.n))
+
+
+def select_immediate_charging_action(observation, env, agent, rng):
+    """
+    Charge immediately using slow charging until the target is reached.
+    Then remain idle.
+    """
+    battery_level = int(observation[1])
+
+    if battery_level < env.target_battery:
+        return env.SLOW_CHARGE
+
+    return env.IDLE
+
+
+def select_price_threshold_action(observation, env, agent, rng):
+    """
+    Charge when electricity is cheap.
+    If waiting would prevent reaching the target, charge regardless of price.
+    """
+    hour = int(observation[0])
+    battery_level = int(observation[1])
+    price_level = int(observation[2])
+
+    # Calculate how much charging is still required.
+    required_levels = max(0, env.target_battery - battery_level)
+
+    # Calculate how many hours remain before departure.
+    remaining_hours = env.time_horizon - hour
+
+    # Stop charging once the target has been reached.
+    if required_levels == 0:
+        return env.IDLE
+
+    # Do not wait if every remaining hour is needed to reach the target.
+    if remaining_hours <= required_levels:
+        return env.SLOW_CHARGE
+
+    # Price level 0 represents low electricity prices.
+    if price_level == 0:
+        return env.SLOW_CHARGE
+
+    # Otherwise, wait for a cheaper price.
+    return env.IDLE
+
+
+def evaluate_policy(env, policy_name, action_selector, agent=None):
+    """Evaluate one charging policy over the same set of environment seeds."""
+
     records = []
 
-    for episode in range(EVALUATION_EPISODES):
-        episode_seed = EVALUATION_SEED_START + episode
-        observation, _ = env.reset(seed=episode_seed)
-        total_reward = 0.0
-        terminated = False
-        truncated = False
-        final_info = None
-
-        while not (terminated or truncated):
-            action = agent.select_action(observation, epsilon=0.0)
-            observation, reward, terminated, truncated, info = env.step(action)
-            total_reward += reward
-            final_info = info
-
-        records.append(
-            {
-                "policy": "Q-learning",
-                "episode": episode + 1,
-                "total_cost": -total_reward,
-                "success": int(
-                    final_info["battery_after"] >= final_info["target_battery"]
-                ),
-                # Each battery level represents 10 percent.
-                "final_battery_percent": final_info["battery_after"] * 10,
-            }
-        )
-
-    return records
-
-
-def evaluate_random_baseline(env):
-    """Test a policy that chooses idle, slow, or fast charging at random."""
-    records = []
+    # This random generator is used by the random baseline.
     random_generator = np.random.default_rng(2026)
 
     for episode in range(EVALUATION_EPISODES):
+
         episode_seed = EVALUATION_SEED_START + episode
+
         observation, _ = env.reset(seed=episode_seed)
-        total_reward = 0.0
+
+        total_cost = 0.0
+        electricity_cost = 0.0
+        wear_penalty = 0.0
+        shortfall_penalty = 0.0
+        fast_charge_actions = 0
+
         terminated = False
         truncated = False
         final_info = None
 
         while not (terminated or truncated):
-            action = int(random_generator.integers(env.action_space.n))
-            observation, reward, terminated, truncated, info = env.step(action)
-            total_reward += reward
+
+            # Ask the selected policy which action it wants to take.
+            action = action_selector(
+                observation, env, agent, random_generator
+            )
+
+            observation, _, terminated, truncated, info = env.step(action)
+
+            # Record the different parts of the charging cost.
+            total_cost += info["total_cost"]
+            electricity_cost += info["electricity_cost"]
+            wear_penalty += info["wear_penalty"]
+            shortfall_penalty += info["shortfall_penalty"]
+
+            # Count fast charges that actually add battery energy.
+            if action == env.FAST_CHARGE and info["levels_added"] > 0:
+                fast_charge_actions += 1
+
             final_info = info
 
         records.append(
             {
-                "policy": "Random baseline",
+                "policy": policy_name,
                 "episode": episode + 1,
-                "total_cost": -total_reward,
+                "total_cost": total_cost,
+                "electricity_cost": electricity_cost,
+                "wear_penalty": wear_penalty,
+                "shortfall_penalty": shortfall_penalty,
+                "fast_charge_actions": fast_charge_actions,
                 "success": int(
                     final_info["battery_after"] >= final_info["target_battery"]
                 ),
-                # Each battery level represents 10 percent.
                 "final_battery_percent": final_info["battery_after"] * 10,
             }
         )
@@ -229,8 +279,15 @@ def save_evaluation_csv(records):
 
 
 def summarize_policy(records):
-    costs = np.array([row["total_cost"] for row in records], dtype=float)
-    success_rate = np.mean([row["success"] for row in records]) * 100
+
+    costs = np.array(
+        [row["total_cost"] for row in records], dtype=float
+    )
+
+    success_rate = np.mean(
+        [row["success"] for row in records]
+    ) * 100
+
     final_battery = np.mean(
         [row["final_battery_percent"] for row in records]
     )
@@ -240,6 +297,22 @@ def summarize_policy(records):
         "cost_std": float(np.std(costs)),
         "success_rate": float(success_rate),
         "average_final_battery_percent": float(final_battery),
+
+        "average_electricity_cost": float(
+            np.mean([row["electricity_cost"] for row in records])
+        ),
+
+        "average_wear_penalty": float(
+            np.mean([row["wear_penalty"] for row in records])
+        ),
+
+        "average_shortfall_penalty": float(
+            np.mean([row["shortfall_penalty"] for row in records])
+        ),
+
+        "average_fast_charge_actions": float(
+            np.mean([row["fast_charge_actions"] for row in records])
+        ),
     }
 
 
@@ -269,85 +342,129 @@ def save_training_figure(records):
     figure.savefig(FIGURES_DIR / "figure3_training_curve.png", dpi=180)
     plt.close(figure)
 
+def save_baseline_figure(policy_records):
 
-def save_baseline_figure(q_records, random_records):
     summaries = {
-        "Q-learning": summarize_policy(q_records),
-        "Random baseline": summarize_policy(random_records),
+        policy_name: summarize_policy(records)
+        for policy_name, records in policy_records.items()
     }
 
     labels = list(summaries.keys())
-    average_costs = [summaries[label]["average_cost"] for label in labels]
-    success_rates = [summaries[label]["success_rate"] for label in labels]
 
-    figure, axes = plt.subplots(1, 2, figsize=(10, 4.5))
+    average_costs = [
+        summaries[label]["average_cost"] for label in labels
+    ]
 
+    success_rates = [
+        summaries[label]["success_rate"] for label in labels
+    ]
+
+    figure, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+    # Compare average total charging costs.
     axes[0].bar(labels, average_costs)
     axes[0].set_title("Average Total Cost")
     axes[0].set_ylabel("Cost per episode ($)")
+    axes[0].tick_params(axis="x", labelrotation=15)
     axes[0].grid(axis="y", alpha=0.3)
 
+    # Compare the percentage of successful departures.
     axes[1].bar(labels, success_rates)
     axes[1].set_title("Departure Success Rate")
     axes[1].set_ylabel("Episodes reaching 80% battery (%)")
     axes[1].set_ylim(0, 100)
+    axes[1].tick_params(axis="x", labelrotation=15)
     axes[1].grid(axis="y", alpha=0.3)
 
-    figure.suptitle("Q-Learning Compared with a Random Policy")
+    figure.suptitle("Q-Learning Compared with Charging Baselines")
+
     figure.tight_layout()
-    figure.savefig(FIGURES_DIR / "figure4_baseline_comparison.png", dpi=180)
+
+    figure.savefig(
+        FIGURES_DIR / "figure4_baseline_comparison.png",
+        dpi=180
+    )
+
     plt.close(figure)
 
     return summaries
 
-
 def save_summary_file(summaries):
+
     path = OUTPUTS_DIR / "evaluation_summary.txt"
+
     with path.open("w", encoding="utf-8") as output_file:
-        output_file.write(f"Evaluation episodes per policy: {EVALUATION_EPISODES}\n")
-        output_file.write("Both policies use the same set of environment seeds.\n\n")
+
+        output_file.write(
+            f"Evaluation episodes per policy: {EVALUATION_EPISODES}\n"
+        )
+
+        output_file.write(
+            "All policies use the same set of environment seeds.\n\n"
+        )
 
         for policy_name, values in summaries.items():
+
             output_file.write(f"{policy_name}\n")
+
             output_file.write(f"Average total cost: ${values['average_cost']:.2f}\n")
             output_file.write(f"Cost standard deviation: ${values['cost_std']:.2f}\n")
+            output_file.write(f"Electricity cost: ${values['average_electricity_cost']:.2f}\n")
+            output_file.write(f"Wear penalty: ${values['average_wear_penalty']:.2f}\n")
+            output_file.write(f"Departure penalty: ${values['average_shortfall_penalty']:.2f}\n")
+            output_file.write(f"Average fast-charge actions: {values['average_fast_charge_actions']:.2f}\n")
             output_file.write(f"Departure success rate: {values['success_rate']:.1f}%\n")
-            output_file.write(
-                "Average final battery: "
-                f"{values['average_final_battery_percent']:.1f}%\n\n"
-            )
+            output_file.write(f"Average final battery: {values['average_final_battery_percent']:.1f}%\n\n")
 
 
 def main():
     env = EVChargingEnv()
     agent = QLearningAgent(env)
-
     print("Training the Q-learning agent...")
     training_records = train_agent(env, agent)
     save_training_csv(training_records)
     np.save(OUTPUTS_DIR / "trained_q_table.npy", agent.q_table)
     save_training_figure(training_records)
 
-    print("\nEvaluating the trained agent...")
-    q_records = evaluate_q_learning(env, agent)
+    # Define the four policies that will be evaluated.
+    policy_definitions = [
+        ("Q-learning", select_q_learning_action, agent),
+        ("Random baseline", select_random_action, None),
+        ("Immediate charging", select_immediate_charging_action, None),
+        ("Price-threshold", select_price_threshold_action, None),
+    ]
+    policy_records = {}
+    all_evaluation_records = []
 
-    print("Evaluating the random baseline...")
-    random_records = evaluate_random_baseline(env)
+    # Evaluate each policy using the same environment seeds.
+    for policy_name, action_selector, policy_agent in policy_definitions:
+        print(f"\nEvaluating {policy_name}...")
+        records = evaluate_policy(
+            env,
+            policy_name,
+            action_selector,
+            agent=policy_agent
+        )
+        policy_records[policy_name] = records
+        all_evaluation_records.extend(records)
 
-    all_evaluation_records = q_records + random_records
+    # Save all evaluation results.
     save_evaluation_csv(all_evaluation_records)
-    summaries = save_baseline_figure(q_records, random_records)
-    save_summary_file(summaries)
 
+    # Generate the comparison graph and calculate summaries.
+    summaries = save_baseline_figure(policy_records)
+    save_summary_file(summaries)
     print("\nFINAL EVALUATION RESULTS")
+
     for policy_name, values in summaries.items():
         print(f"\n{policy_name}")
         print(f"  Average total cost: ${values['average_cost']:.2f}")
+        print(f"  Electricity cost: ${values['average_electricity_cost']:.2f}")
+        print(f"  Wear penalty: ${values['average_wear_penalty']:.2f}")
+        print(f"  Departure penalty: ${values['average_shortfall_penalty']:.2f}")
+        print(f"  Average fast-charge actions: {values['average_fast_charge_actions']:.2f}")
         print(f"  Departure success rate: {values['success_rate']:.1f}%")
-        print(
-            "  Average final battery: "
-            f"{values['average_final_battery_percent']:.1f}%"
-        )
+        print(f"  Average final battery: {values['average_final_battery_percent']:.1f}%")
 
     print("\nCreated files:")
     print("  figures/figure3_training_curve.png")
@@ -356,7 +473,6 @@ def main():
     print("  outputs/evaluation_results.csv")
     print("  outputs/evaluation_summary.txt")
     print("  outputs/trained_q_table.npy")
-
     env.close()
 
 

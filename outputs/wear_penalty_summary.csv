@@ -1,0 +1,4 @@
+wear_penalty_setting,average_total_cost,cost_std,average_electricity_cost,average_actual_wear_penalty,average_shortfall_penalty,average_fast_charge_actions,success_rate,average_final_battery_percent
+0.0,3.0467999999999997,1.2597022505338313,3.0467999999999997,0.0,0.0,1.964,100.0,80.0
+0.5,3.4215999999999998,1.334261383687619,3.3846,0.037,0.0,0.074,100.0,80.0
+1.0,3.3954,1.3201662168075652,3.3954,0.0,0.0,0.0,100.0,80.0
